@@ -18,13 +18,17 @@ producer = KafkaProducer(
 
 def generate_order_event():
     order_id = random.randint(1000, 9999)
-    # Expected time in minutes (e.g. 15 to 45 mins)
+    customer_names = ["Arjun", "Deepika", "Rahul", "Sarah", "Michael", "Elena", "Rohan", "Sanya"]
+    vehicles = ["Bike", "Scooter", "Electric Cycle", "Car"]
+    
     expected_time = random.randint(15, 45)
-    # Time elapsed in minutes (simulate both early and delayed deliveries)
     time_elapsed = random.randint(5, 60)
     
     event = {
         "order_id": order_id,
+        "customer_name": random.choice(customer_names),
+        "vehicle_type": random.choice(vehicles),
+        "distance_km": round(random.uniform(1.0, 12.0), 1),
         "expected_time": expected_time,
         "time_elapsed": time_elapsed,
         "timestamp": datetime.utcnow().isoformat()

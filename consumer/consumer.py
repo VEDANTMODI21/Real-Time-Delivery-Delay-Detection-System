@@ -26,6 +26,9 @@ def setup_db():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS delivery_data (
                 order_id INT PRIMARY KEY,
+                customer_name TEXT,
+                vehicle_type TEXT,
+                distance_km FLOAT,
                 expected_time INT,
                 time_elapsed INT,
                 status TEXT,
@@ -61,11 +64,14 @@ def store_event(event):
         delay_percentage = calculate_delay_percentage(event['expected_time'], event['time_elapsed'])
         
         cur.execute("""
-            INSERT INTO delivery_data (order_id, expected_time, time_elapsed, status, delay_percentage)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO delivery_data (order_id, customer_name, vehicle_type, distance_km, expected_time, time_elapsed, status, delay_percentage)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (order_id) DO NOTHING;
         """, (
             event['order_id'], 
+            event.get('customer_name', 'Unknown'),
+            event.get('vehicle_type', 'Unknown'),
+            event.get('distance_km', 0.0),
             event['expected_time'], 
             event['time_elapsed'], 
             status, 
