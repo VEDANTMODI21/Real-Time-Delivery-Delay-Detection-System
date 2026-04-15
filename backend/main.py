@@ -6,7 +6,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(title="Delivery Analytics API")
+
+# Add CORS Middleware for cross-domain communication
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # In production, replace with your dashboard URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def get_db_connection():
     return psycopg2.connect(
