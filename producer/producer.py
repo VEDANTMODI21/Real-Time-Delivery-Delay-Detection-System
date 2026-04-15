@@ -2,42 +2,36 @@ import json
 import time
 import random
 from datetime import datetime
-from kafka import KafkaProducer
+import redis
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-KAFKA_BROKER = os.getenv("KAFKA_BROKER", "localhost:9092")
-KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "delivery_events")
-KAFKA_USERNAME = os.getenv("KAFKA_USERNAME")
-KAFKA_PASSWORD = os.getenv("KAFKA_PASSWORD")
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
+REDIS_QUEUE = os.getenv("REDIS_QUEUE", "delivery_events")
+REDIS_SSL = os.getenv("REDIS_SSL", "False").lower() == "true"
 
-def get_producer():
+def get_redis_client():
     for i in range(10):
         try:
-            # Basic config
-            kafka_config = {
-                'bootstrap_servers': KAFKA_BROKER,
-                'value_serializer': lambda v: json.dumps(v).encode('utf-8')
-            }
-            
-            # Add SASL/SSL for cloud deployment if credentials are provided
-            if KAFKA_USERNAME and KAFKA_PASSWORD:
-                kafka_config.update({
-                    'security_protocol': 'SASL_SSL',
-                    'sasl_mechanism': 'SCRAM-SHA-256',
-                    'sasl_plain_username': KAFKA_USERNAME,
-                    'sasl_plain_password': KAFKA_PASSWORD
-                })
-                
-            return KafkaProducer(**kafka_config)
+            client = redis.Redis(
+                host=REDIS_HOST,
+                port=REDIS_PORT,
+                password=REDIS_PASSWORD,
+                ssl=REDIS_SSL,
+                decode_responses=True
+            )
+            client.ping()
+            return client
         except Exception as e:
-            print(f"Waiting for Kafka... (Attempt {i+1}/10) Error: {e}")
+            print(f"Waiting for Redis... (Attempt {i+1}/10) Error: {e}")
             time.sleep(5)
-    raise Exception("Could not connect to Kafka after 10 attempts")
+    raise Exception("Could not connect to Redis after 10 attempts")
 
-producer = get_producer()
+r = get_redis_client()
 
 def generate_order_event():
     order_id = random.randint(1000, 9999)
@@ -58,18 +52,16 @@ def generate_order_event():
     }
     return event
 
-def send_to_kafka():
-    print(f"Starting producer... Sending events to {KAFKA_TOPIC}")
+def send_to_redis():
+    print(f"Starting producer... Sending events to Redis queue: {REDIS_QUEUE}")
     try:
         while True:
             event = generate_order_event()
-            producer.send(KAFKA_TOPIC, event)
+            r.rpush(REDIS_QUEUE, json.dumps(event))
             print(f"Sent event: {event}")
-            time.sleep(random.uniform(2, 4)) # Send every 2-3 sec roughly
+            time.sleep(random.uniform(2, 4))
     except KeyboardInterrupt:
         print("Producer stopped.")
-    finally:
-        producer.close()
 
 if __name__ == "__main__":
-    send_to_kafka()
+    send_to_redis()

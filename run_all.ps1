@@ -1,5 +1,5 @@
-# Start the infrastructure (Kafka, Zookeeper, Postgres)
-Write-Host "Updating infrastructure with Docker Compose..." -ForegroundColor Cyan
+# Start the infrastructure (Redis, Postgres)
+Write-Host "Updating infrastructure with Docker Compose... (Using Redis)" -ForegroundColor Cyan
 docker-compose up -d
 
 Write-Host "Waiting for services to be ready..." -ForegroundColor Yellow

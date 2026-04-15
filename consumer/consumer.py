@@ -2,15 +2,16 @@ import json
 import os
 import psycopg2
 import time
-from kafka import KafkaConsumer
+import redis
 from dotenv import load_dotenv
 
 load_dotenv()
 
-KAFKA_BROKER = os.getenv("KAFKA_BROKER", "localhost:9092")
-KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "delivery_events")
-KAFKA_USERNAME = os.getenv("KAFKA_USERNAME")
-KAFKA_PASSWORD = os.getenv("KAFKA_PASSWORD")
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
+REDIS_QUEUE = os.getenv("REDIS_QUEUE", "delivery_events")
+REDIS_SSL = os.getenv("REDIS_SSL", "False").lower() == "true"
 
 # DB Connection
 def get_db_connection():
@@ -98,37 +99,34 @@ def consume_messages():
                 print(f"Waiting for DB... (Attempt {i+1}/10) Error: {e}")
                 time.sleep(5)
         
-        # Wait for Kafka
-        consumer = None
+        # Connect to Redis
+        client = None
         for i in range(10):
             try:
-                kafka_config = {
-                    'bootstrap_servers': KAFKA_BROKER,
-                    'value_deserializer': lambda x: json.loads(x.decode('utf-8')),
-                    'auto_offset_reset': 'earliest'
-                }
-                
-                if KAFKA_USERNAME and KAFKA_PASSWORD:
-                    kafka_config.update({
-                        'security_protocol': 'SASL_SSL',
-                        'sasl_mechanism': 'SCRAM-SHA-256',
-                        'sasl_plain_username': KAFKA_USERNAME,
-                        'sasl_plain_password': KAFKA_PASSWORD
-                    })
-                
-                consumer = KafkaConsumer(KAFKA_TOPIC, **kafka_config)
+                client = redis.Redis(
+                    host=REDIS_HOST,
+                    port=REDIS_PORT,
+                    password=REDIS_PASSWORD,
+                    ssl=REDIS_SSL,
+                    decode_responses=True
+                )
+                client.ping()
                 break
             except Exception as e:
-                print(f"Waiting for Kafka... (Attempt {i+1}/10) Error: {e}")
+                print(f"Waiting for Redis... (Attempt {i+1}/10) Error: {e}")
                 time.sleep(5)
         
-        if not consumer:
-            raise Exception("Failed to connect to Kafka")
+        if not client:
+            raise Exception("Failed to connect to Redis")
 
-        print(f"Listening for messages on topic: {KAFKA_TOPIC}")
-        for message in consumer:
-            event = message.value
-            store_event(event)
+        print(f"Listening for messages on Redis queue: {REDIS_QUEUE}")
+        while True:
+            # BLPOP blocks until a message is available
+            message = client.blpop(REDIS_QUEUE, timeout=0)
+            if message:
+                event = json.loads(message[1])
+                store_event(event)
+
     except Exception as e:
         print(f"Failed to consume messages: {e}")
 
