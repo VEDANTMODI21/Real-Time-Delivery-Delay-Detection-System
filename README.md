@@ -38,27 +38,38 @@ Start Kafka and Zookeeper. Create the `delivery_events` topic:
 kafka-topics.sh --create --topic delivery_events --bootstrap-server localhost:9092
 ```
 
-### 4. Running the Components
+### 4. Running the Complete System
+The easiest way to start everything on Windows is using the provided PowerShell script. It will spin up the infrastructure (Docker) and then launch the backend, consumer, producer, and dashboard in separate windows.
 
-Run each in a separate terminal:
+Open a PowerShell terminal as Administrator and run:
+```powershell
+.\run_all.ps1
+```
 
-**Start Backend API**
+If you prefer running components manually:
+
+**A. Start Infrastructure**
+```bash
+docker-compose up -d
+```
+
+**B. Start Backend API**
 ```bash
 cd backend
 uvicorn main:app --reload --port 8000
 ```
 
-**Start Consumer Engine**
+**C. Start Consumer Engine**
 ```bash
 python consumer/consumer.py
 ```
 
-**Start Producer Engine**
+**D. Start Producer Engine**
 ```bash
 python producer/producer.py
 ```
 
-**Start Dashboard**
+**E. Start Dashboard**
 ```bash
 streamlit run dashboard/app.py
 ```

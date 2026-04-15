@@ -10,11 +10,34 @@ load_dotenv()
 
 KAFKA_BROKER = os.getenv("KAFKA_BROKER", "localhost:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "delivery_events")
+KAFKA_USERNAME = os.getenv("KAFKA_USERNAME")
+KAFKA_PASSWORD = os.getenv("KAFKA_PASSWORD")
 
-producer = KafkaProducer(
-    bootstrap_servers=KAFKA_BROKER,
-    value_serializer=lambda v: json.dumps(v).encode('utf-8')
-)
+def get_producer():
+    for i in range(10):
+        try:
+            # Basic config
+            kafka_config = {
+                'bootstrap_servers': KAFKA_BROKER,
+                'value_serializer': lambda v: json.dumps(v).encode('utf-8')
+            }
+            
+            # Add SASL/SSL for cloud deployment if credentials are provided
+            if KAFKA_USERNAME and KAFKA_PASSWORD:
+                kafka_config.update({
+                    'security_protocol': 'SASL_SSL',
+                    'sasl_mechanism': 'SCRAM-SHA-256',
+                    'sasl_plain_username': KAFKA_USERNAME,
+                    'sasl_plain_password': KAFKA_PASSWORD
+                })
+                
+            return KafkaProducer(**kafka_config)
+        except Exception as e:
+            print(f"Waiting for Kafka... (Attempt {i+1}/10) Error: {e}")
+            time.sleep(5)
+    raise Exception("Could not connect to Kafka after 10 attempts")
+
+producer = get_producer()
 
 def generate_order_event():
     order_id = random.randint(1000, 9999)

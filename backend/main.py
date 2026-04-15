@@ -17,6 +17,33 @@ def get_db_connection():
         password=os.getenv("DB_PASSWORD")
     )
 
+def setup_db():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS delivery_data (
+                order_id INT PRIMARY KEY,
+                customer_name TEXT,
+                vehicle_type TEXT,
+                distance_km FLOAT,
+                expected_time INT,
+                time_elapsed INT,
+                status TEXT,
+                delay_percentage FLOAT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Failed to setup database: {e}")
+
+@app.on_event("startup")
+def startup_event():
+    setup_db()
+
 @app.get("/health")
 def health_check():
     return {"status": "ok"}

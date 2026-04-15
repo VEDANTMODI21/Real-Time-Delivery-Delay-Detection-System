@@ -1,6 +1,7 @@
 import json
 import os
 import psycopg2
+import time
 from kafka import KafkaConsumer
 from dotenv import load_dotenv
 
@@ -8,6 +9,8 @@ load_dotenv()
 
 KAFKA_BROKER = os.getenv("KAFKA_BROKER", "localhost:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "delivery_events")
+KAFKA_USERNAME = os.getenv("KAFKA_USERNAME")
+KAFKA_PASSWORD = os.getenv("KAFKA_PASSWORD")
 
 # DB Connection
 def get_db_connection():
@@ -86,13 +89,42 @@ def store_event(event):
 
 def consume_messages():
     try:
-        setup_db()
-        consumer = KafkaConsumer(
-            KAFKA_TOPIC,
-            bootstrap_servers=KAFKA_BROKER,
-            value_deserializer=lambda x: json.loads(x.decode('utf-8')),
-            auto_offset_reset='earliest' # to read from the beginning if restarting
-        )
+        # Wait for DB
+        for i in range(10):
+            try:
+                setup_db()
+                break
+            except Exception as e:
+                print(f"Waiting for DB... (Attempt {i+1}/10) Error: {e}")
+                time.sleep(5)
+        
+        # Wait for Kafka
+        consumer = None
+        for i in range(10):
+            try:
+                kafka_config = {
+                    'bootstrap_servers': KAFKA_BROKER,
+                    'value_deserializer': lambda x: json.loads(x.decode('utf-8')),
+                    'auto_offset_reset': 'earliest'
+                }
+                
+                if KAFKA_USERNAME and KAFKA_PASSWORD:
+                    kafka_config.update({
+                        'security_protocol': 'SASL_SSL',
+                        'sasl_mechanism': 'SCRAM-SHA-256',
+                        'sasl_plain_username': KAFKA_USERNAME,
+                        'sasl_plain_password': KAFKA_PASSWORD
+                    })
+                
+                consumer = KafkaConsumer(KAFKA_TOPIC, **kafka_config)
+                break
+            except Exception as e:
+                print(f"Waiting for Kafka... (Attempt {i+1}/10) Error: {e}")
+                time.sleep(5)
+        
+        if not consumer:
+            raise Exception("Failed to connect to Kafka")
+
         print(f"Listening for messages on topic: {KAFKA_TOPIC}")
         for message in consumer:
             event = message.value
