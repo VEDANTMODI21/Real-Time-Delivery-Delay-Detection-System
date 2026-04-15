@@ -1,0 +1,8 @@
+kafka-python
+psycopg2-binary
+fastapi
+uvicorn
+streamlit
+python-dotenv
+pandas
+requests
