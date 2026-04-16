@@ -1,109 +1,89 @@
 from fastapi import FastAPI
-import psycopg2
+from fastapi.middleware.cors import CORSMiddleware
+import requests
 import os
-from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi.middleware.cors import CORSMiddleware
-
 app = FastAPI(title="Delivery Analytics API")
 
-# Add CORS Middleware for cross-domain communication
+# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, replace with your dashboard URL
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-def get_db_connection():
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST"),
-        port=os.getenv("DB_PORT", "5432"),
-        database=os.getenv("DB_NAME"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD")
-    )
+# Supabase REST Config
+DB_URL = os.getenv("SUPABASE_REST_URL")
+DB_KEY = os.getenv("SUPABASE_REST_KEY")
 
-def setup_db():
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS delivery_data (
-                order_id INT PRIMARY KEY,
-                customer_name TEXT,
-                vehicle_type TEXT,
-                distance_km FLOAT,
-                expected_time INT,
-                time_elapsed INT,
-                status TEXT,
-                delay_percentage FLOAT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        print(f"Failed to setup database: {e}")
-
-@app.on_event("startup")
-def startup_event():
-    setup_db()
+def get_headers():
+    return {
+        "apikey": DB_KEY,
+        "Authorization": f"Bearer {DB_KEY}",
+        "Content-Type": "application/json"
+    }
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok"}
+    try:
+        # Simple probe to Supabase
+        response = requests.get(f"{DB_URL}/rest/v1/delivery_data?select=count", headers=get_headers())
+        if response.status_code == 200:
+            return {"status": "ok", "database": "connected"}
+        return {"status": "partial", "error": f"DB Error {response.status_code}"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
 @app.get("/orders")
 def get_orders(limit: int = 100):
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("SELECT * FROM delivery_data ORDER BY created_at DESC LIMIT %s", (limit,))
-        orders = cur.fetchall()
-        cur.close()
-        conn.close()
-        return orders
+        url = f"{DB_URL}/rest/v1/delivery_data?select=*&order=created_at.desc&limit={limit}"
+        response = requests.get(url, headers=get_headers())
+        response.raise_for_status()
+        return response.json()
     except Exception as e:
         return {"error": str(e)}
 
 @app.get("/orders/delayed")
 def get_delayed_orders(limit: int = 100):
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("SELECT * FROM delivery_data WHERE status = 'DELAYED' ORDER BY created_at DESC LIMIT %s", (limit,))
-        orders = cur.fetchall()
-        cur.close()
-        conn.close()
-        return orders
+        url = f"{DB_URL}/rest/v1/delivery_data?select=*&status=eq.DELAYED&order=created_at.desc&limit={limit}"
+        response = requests.get(url, headers=get_headers())
+        response.raise_for_status()
+        return response.json()
     except Exception as e:
         return {"error": str(e)}
 
 @app.get("/analytics")
 def get_analytics():
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM delivery_data;")
-        total_orders = cur.fetchone()[0]
+        # Total orders
+        count_url = f"{DB_URL}/rest/v1/delivery_data?select=count"
+        res_total = requests.get(count_url, headers={**get_headers(), "Prefer": "count=exact"})
+        total_orders = int(res_total.headers.get("Content-Range", "0-0/0").split("/")[-1])
         
-        cur.execute("SELECT COUNT(*) FROM delivery_data WHERE status = 'DELAYED';")
-        delayed_orders = cur.fetchone()[0]
+        # Delayed orders
+        delay_url = f"{DB_URL}/rest/v1/delivery_data?select=count&status=eq.DELAYED"
+        res_delay = requests.get(delay_url, headers={**get_headers(), "Prefer": "count=exact"})
+        delayed_orders = int(res_delay.headers.get("Content-Range", "0-0/0").split("/")[-1])
         
+        # Avg delay (approximate via select)
         avg_delay = 0
         if delayed_orders > 0:
-            cur.execute("SELECT AVG(time_elapsed - expected_time) FROM delivery_data WHERE status = 'DELAYED';")
-            avg_delay = round(cur.fetchone()[0], 2)
-            
-        cur.close()
-        conn.close()
-        
+            # Note: PostgREST doesn't support AVG directly in simple select, 
+            # we'd usually use an RPC or just fetch recent ones and calculate.
+            # For simplicity, we'll return a mocked avg or fetch first 100.
+            data_url = f"{DB_URL}/rest/v1/delivery_data?select=expected_time,time_elapsed&status=eq.DELAYED&limit=50"
+            rows = requests.get(data_url, headers=get_headers()).json()
+            if rows:
+                delays = [(r['time_elapsed'] - r['expected_time']) for r in rows]
+                avg_delay = round(sum(delays) / len(delays), 2)
+
         return {
             "total_orders": total_orders,
             "delayed_orders": delayed_orders,

@@ -2,36 +2,29 @@ import json
 import time
 import random
 from datetime import datetime
-import redis
+import requests
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
-REDIS_QUEUE = os.getenv("REDIS_QUEUE", "delivery_events")
-REDIS_SSL = os.getenv("REDIS_SSL", "False").lower() == "true"
+URL = os.getenv("UPSTASH_REST_URL")
+TOKEN = os.getenv("UPSTASH_REST_TOKEN")
+QUEUE = os.getenv("REDIS_QUEUE", "delivery_events")
 
-def get_redis_client():
-    for i in range(10):
-        try:
-            client = redis.Redis(
-                host=REDIS_HOST,
-                port=REDIS_PORT,
-                password=REDIS_PASSWORD,
-                ssl=REDIS_SSL,
-                decode_responses=True
-            )
-            client.ping()
-            return client
-        except Exception as e:
-            print(f"Waiting for Redis... (Attempt {i+1}/10) Error: {e}")
-            time.sleep(5)
-    raise Exception("Could not connect to Redis after 10 attempts")
-
-r = get_redis_client()
+def send_to_upstash(event):
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+    # Command for Redis RPUSH via REST
+    command = ["RPUSH", QUEUE, json.dumps(event)]
+    
+    try:
+        response = requests.post(f"{URL}", headers=headers, json=command)
+        if response.status_code == 200:
+            print(f"✅ Sent event (via REST): {event['order_id']}")
+        else:
+            print(f"❌ Failed: {response.status_code} - {response.text}")
+    except Exception as e:
+        print(f"❌ Network Error: {e}")
 
 def generate_order_event():
     order_id = random.randint(1000, 9999)
@@ -52,16 +45,9 @@ def generate_order_event():
     }
     return event
 
-def send_to_redis():
-    print(f"Starting producer... Sending events to Redis queue: {REDIS_QUEUE}")
-    try:
-        while True:
-            event = generate_order_event()
-            r.rpush(REDIS_QUEUE, json.dumps(event))
-            print(f"Sent event: {event}")
-            time.sleep(random.uniform(2, 4))
-    except KeyboardInterrupt:
-        print("Producer stopped.")
-
 if __name__ == "__main__":
-    send_to_redis()
+    print(f"Starting REST Producer... Sending events to {URL}")
+    while True:
+        event = generate_order_event()
+        send_to_upstash(event)
+        time.sleep(random.uniform(2, 4))
